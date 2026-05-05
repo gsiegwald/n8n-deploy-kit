@@ -1,5 +1,4 @@
-````markdown
-# n8n-deploy-aws
+# n8n-deploy-kit
 
 - AWS infrastructure provisioned with Terraform.
 - Secure defaults: IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
