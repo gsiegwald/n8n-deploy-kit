@@ -54,7 +54,7 @@ resource "aws_security_group" "n8n" {
   }
 
   ingress {
-    description = "HTTP public — required for Let's Encrypt ACME challenge and redirect"
+    description = "HTTP public, required for Lets Encrypt ACME challenge and redirect"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -62,7 +62,7 @@ resource "aws_security_group" "n8n" {
   }
 
   ingress {
-    description = "HTTPS public — n8n UI and webhooks"
+    description = "HTTPS public, n8n UI and webhooks"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
