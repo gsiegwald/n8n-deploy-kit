@@ -29,7 +29,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/n8n-deploy-aws_key -N "" -C "n8n-deploy-aws"
 curl -s https://ifconfig.me
 ```
 
-**Configure your variables — copy the example and fill in the values:**
+**Configure your variables - copy the example and fill in the values:**
 
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
@@ -87,11 +87,11 @@ High-level view of the target architecture and the main network flows.
 ```mermaid
 flowchart LR
   %% Infrastructure
-  subgraph AWS["AWS — eu-west-3"]
+  subgraph AWS["AWS - eu-west-3"]
     subgraph VPC["VPC 10.0.0.0/16"]
-      subgraph Subnet["Public Subnet 10.0.1.0/24 — dynamically selected AZ"]
+      subgraph Subnet["Public Subnet 10.0.1.0/24 - dynamically selected AZ"]
         SG["Security Group\nSSH :22 admin only\nHTTP :80 public\nHTTPS :443 public"]
-        subgraph EC2["EC2 t3.small — Ubuntu 24.04"]
+        subgraph EC2["EC2 t3.small - Ubuntu 24.04"]
           NGINX["nginx\n(host, :80/:443)"]
           subgraph Docker["Docker Compose"]
             N8N["n8n\n(:5678 localhost)"]
@@ -135,7 +135,7 @@ The target architecture includes:
 
 * An Ubuntu 24.04 EC2 instance (`t3.small`) hosting the full stack.
 * **nginx** installed on the host as a reverse proxy, handling TLS termination and proxying traffic to n8n.
-* **n8n** running in Docker Compose, bound to `127.0.0.1:5678` (not exposed publicly — reachable only via nginx).
+* **n8n** running in Docker Compose, bound to `127.0.0.1:5678` (not exposed publicly - reachable only via nginx).
 * **PostgreSQL 16** running in Docker Compose as n8n's database backend (no public port exposed).
 * A **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal.
 * An **Elastic IP** ensuring the public IP address remains stable across instance reboots.
@@ -164,7 +164,7 @@ flowchart TB
 
   subgraph COMPUTE["AWS Resources : Compute"]
     KP["Key Pair\n(SSH public key)"]
-    EC2["EC2 instance\nUbuntu 24.04 — t3.small"]
+    EC2["EC2 instance\nUbuntu 24.04 - t3.small"]
     EIP["Elastic IP"]
     EIP_ASSOC["EIP Association"]
   end
@@ -211,13 +211,13 @@ Currently implemented at the Terraform layer:
 
 * **SSH restricted to `admin_ip`** via the Security Group (port 22 allowed only from your `/32`).
 * **EC2 key pair authentication** for the Ubuntu instance.
-* **IMDSv2 enforced**: instance metadata access requires a session token (IMDSv1 disabled). Hop limit set to 1 — Docker containers cannot reach the metadata service.
+* **IMDSv2 enforced**: instance metadata access requires a session token (IMDSv1 disabled). Hop limit set to 1 - Docker containers cannot reach the metadata service.
 * **Encrypted EBS root volume**: disk content is encrypted at rest using an AWS-managed key.
 
 Planned at the Ansible / application layer:
 
 * **nginx as the only public entry point** for n8n.
-* **n8n not directly exposed**: n8n binds on `127.0.0.1:5678` only — accessible exclusively through nginx.
+* **n8n not directly exposed**: n8n binds on `127.0.0.1:5678` only - accessible exclusively through nginx.
 * **PostgreSQL not exposed**: no public port, reachable only by n8n within the Docker network.
 * **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal.
 
@@ -238,28 +238,28 @@ n8n-deploy-aws/
 │   ├── variables.tf                # Input variables with defaults
 │   ├── versions.tf                 # Terraform and provider version constraints
 │   ├── terraform.tfvars.example    # Variables template (commit-safe)
-│   └── terraform.tfvars            # Actual values — gitignored, never committed
+│   └── terraform.tfvars            # Actual values - gitignored, never committed
 ├── .gitignore
 └── README.md
 ```
 
 Note: the following files are local-only and intentionally ignored by Git:
 
-* `terraform/terraform.tfstate*` and `terraform/.terraform/` — Terraform state and provider cache.
-* `terraform/terraform.tfvars` — sensitive variable values (admin IP, SSH public key).
-* `ansible/inventory.ini` — generated from Terraform outputs, contains the EC2 IP address.
-* `.ssh/` — SSH key pair used for deployment.
+* `terraform/terraform.tfstate*` and `terraform/.terraform/` - Terraform state and provider cache.
+* `terraform/terraform.tfvars` - sensitive variable values (admin IP, SSH public key).
+* `ansible/inventory.ini` - generated from Terraform outputs, contains the EC2 IP address.
+* `.ssh/` - SSH key pair used for deployment.
 
 ---
 
 ## Future improvements
 
-* **Ansible roles** — Docker, nginx + certbot, n8n deployment (in progress).
-* **Queue mode** — Redis + n8n workers for high-volume, parallel workflow execution.
-* **RDS PostgreSQL** — Replace the containerized PostgreSQL with a managed AWS RDS instance and automated S3 backups.
-* **Monitoring** — Prometheus + Grafana for n8n metrics and system observability.
-* **HIPAA hardening** — Encryption at rest, audit logging, network isolation checklist.
-* **Multi-tenant** — Per-client n8n instances with Terraform modules.
-* **Remote Terraform backend** — S3 + DynamoDB state locking for team use.
+* **Ansible roles** - Docker, nginx + certbot, n8n deployment (in progress).
+* **Queue mode** - Redis + n8n workers for high-volume, parallel workflow execution.
+* **RDS PostgreSQL** - Replace the containerized PostgreSQL with a managed AWS RDS instance and automated S3 backups.
+* **Monitoring** - Prometheus + Grafana for n8n metrics and system observability.
+* **HIPAA hardening** - Encryption at rest, audit logging, network isolation checklist.
+* **Multi-tenant** - Per-client n8n instances with Terraform modules.
+* **Remote Terraform backend** - S3 + DynamoDB state locking for team use.
 
 ```
