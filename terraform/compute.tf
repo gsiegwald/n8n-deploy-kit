@@ -22,6 +22,13 @@ resource "aws_instance" "n8n" {
     http_put_response_hop_limit = 1
   }
 
+  root_block_device {
+    volume_size           = 8
+    volume_type           = "gp3"
+    encrypted             = true
+    delete_on_termination = true
+  }
+
   tags = {
     Name    = "${var.project_name}-ec2"
     Project = var.project_name
@@ -29,6 +36,9 @@ resource "aws_instance" "n8n" {
 }
 
 resource "aws_eip" "n8n" {
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.gw]
+
   tags = {
     Name    = "${var.project_name}-eip"
     Project = var.project_name

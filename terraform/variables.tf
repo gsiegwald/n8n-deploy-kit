@@ -14,6 +14,11 @@ variable "admin_ip" {
   description = "Your public IP address with CIDR suffix (/32) — SSH access is restricted to this IP"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = can(cidrhost(var.admin_ip, 0)) && var.admin_ip != "0.0.0.0/0"
+    error_message = "admin_ip must be a valid CIDR block, for example 203.0.113.10/32, and must not be 0.0.0.0/0."
+  }
 }
 
 variable "ssh_public_key" {
