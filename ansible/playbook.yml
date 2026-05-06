@@ -1,0 +1,18 @@
+---
+- name: Provision n8n stack
+  hosts: n8n
+  become: true
+ 
+  pre_tasks:
+    - name: Build FQDN from public IP (sslip.io)
+      set_fact:
+        n8n_fqdn: "{{ ansible_host | replace('.', '-') }}.sslip.io"
+ 
+    - name: Display FQDN
+      debug:
+        msg: "FQDN for this instance: {{ n8n_fqdn }}"
+ 
+  roles:
+    - docker
+    - nginx
+    - n8n
