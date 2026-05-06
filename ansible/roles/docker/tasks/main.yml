@@ -1,0 +1,78 @@
+---
+- name: Update APT package index
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+  become: true
+
+- name: Ensure /etc/apt/keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  become: true
+
+- name: Verify Docker GPG key fingerprint
+  ansible.builtin.command:
+    cmd: gpg --show-keys --with-fingerprint --with-colons /etc/apt/keyrings/docker.asc
+  register: gpg_output
+  changed_when: false
+  become: true
+
+- name: Fail if Docker GPG fingerprint does not match
+  ansible.builtin.fail:
+    msg: "Docker GPG key fingerprint mismatchi, possible supply chain attack"
+  when: "'9DC858229FC7DD38854AE2D88D81803C0EBFCD88' not in gpg_output.stdout"
+
+- name: Add Docker APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+  become: true
+
+- name: Refresh APT index after adding Docker repo
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+
+- name: Install Docker CE, CLI, containerd, buildx and Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  become: true
+
+- name: Enable and start Docker service
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+  become: true
+
+- name: Add ubuntu user to docker group
+  ansible.builtin.user:
+    name: ubuntu
+    groups: docker
+    append: true
+  become: true

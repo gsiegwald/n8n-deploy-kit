@@ -1,6 +1,6 @@
 ---
 - name: Provision n8n stack
-  hosts: n8n
+  hosts: n8n_hosts
   become: true
  
   pre_tasks:
@@ -13,6 +13,7 @@
         msg: "FQDN for this instance: {{ n8n_fqdn }}"
  
   roles:
+    - base
     - docker
-    - nginx
-    - n8n
+      #- nginx
+      #- n8n
