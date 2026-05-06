@@ -1,0 +1,44 @@
+---
+- name: Create /opt/n8n directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  become: true
+  loop:
+    - /opt/n8n
+    - /opt/n8n/certbot/conf
+    - /opt/n8n/certbot/www
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../docker/docker-compose.yml"
+    dest: /opt/n8n/docker-compose.yml
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  become: true
+
+- name: Deploy nginx HTTP-only config
+  ansible.builtin.template:
+    src: nginx-http-only.conf.j2
+    dest: /opt/n8n/nginx.conf
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  become: true
+
+- name: Start nginx container
+  ansible.builtin.command:
+    cmd: docker compose -f /opt/n8n/docker-compose.yml up -d nginx
+  become: true
+  changed_when: false
+
+- name: Wait for nginx to be ready on port 80
+  ansible.builtin.wait_for:
+    port: 80
+    delay: 3
+    timeout: 30
+

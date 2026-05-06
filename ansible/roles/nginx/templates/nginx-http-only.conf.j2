@@ -1,0 +1,16 @@
+server {
+    listen 80;
+    server_name {{ n8n_fqdn }};
+
+    # Serve Let's Encrypt HTTP-01 ACME challenge files
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        try_files $uri =404;
+    }
+
+    # Reject all other requests — n8n is not available yet
+    location / {
+        return 444;
+    }
+}
+

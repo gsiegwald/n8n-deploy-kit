@@ -1,0 +1,84 @@
+name: n8n
+
+services:
+
+  nginx:
+    image: nginx:1.28.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    networks:
+      - n8n_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /var/run
+      - /tmp
+      - /var/cache/nginx
+
+  certbot:
+    image: certbot/certbot:v5.4.0
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - n8n_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  n8n:
+    image: n8nio/n8n:2.19.3
+    restart: unless-stopped
+    expose:
+      - "5678"
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n_network
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - path: ./.env
+        required: false
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - n8n_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  n8n_network:
+    driver: bridge
+
+volumes:
+  n8n_data:
+  postgres_data:

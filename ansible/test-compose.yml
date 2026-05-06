@@ -1,0 +1,23 @@
+---
+- name: Test docker-compose on EC2
+  hosts: n8n_hosts
+  become: true
+
+  tasks:
+    - name: Copy docker-compose.yml to EC2
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../docker/docker-compose.yml"
+        dest: /opt/n8n/docker-compose.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Validate docker-compose syntax on EC2
+      ansible.builtin.command:
+        cmd: docker compose -f /opt/n8n/docker-compose.yml config
+      register: compose_config
+      changed_when: false
+
+    - name: Show compose config output
+      ansible.builtin.debug:
+        var: compose_config.stdout_lines
