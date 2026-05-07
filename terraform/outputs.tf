@@ -13,6 +13,6 @@ output "ssh_command" {
 output "ansible_inventory" {
   value = <<-INI
     [n8n_hosts]
-    n8n ansible_host=${aws_eip.n8n.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file=.ssh/n8n-deploy-aws_key
+    n8n ansible_host=${aws_eip.n8n.public_ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/${var.project_name}_key
   INI
 }
