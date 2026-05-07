@@ -42,3 +42,54 @@
     delay: 3
     timeout: 30
 
+- name: Check if certificate already exists
+  ansible.builtin.stat:
+    path: /opt/n8n/certbot/conf/live/{{ n8n_fqdn }}/fullchain.pem
+  register: cert_stat
+  become: true
+
+- name: Obtain TLS certificate with certbot
+  ansible.builtin.command:
+    cmd: >
+      docker compose -f /opt/n8n/docker-compose.yml
+      run --rm certbot certonly --webroot
+      -w /var/www/certbot
+      -d {{ n8n_fqdn }}
+      --email {{ certbot_email }}
+      --agree-tos
+      --no-eff-email
+      --non-interactive
+  args:
+    chdir: /opt/n8n
+  become: true
+  changed_when: true
+  when: not cert_stat.stat.exists
+  register: certbot_result
+
+- name: Show certbot output
+  ansible.builtin.debug:
+    var: certbot_result.stdout_lines
+  when:
+    - certbot_result is defined
+    - not certbot_result.skipped | default(false)
+
+- name: Deploy nginx HTTPS placeholder config
+  ansible.builtin.template:
+    src: nginx-https-placeholder.conf.j2
+    dest: /opt/n8n/nginx.conf
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+  become: true
+
+- name: Test nginx configuration
+  ansible.builtin.command:
+    cmd: docker compose -f /opt/n8n/docker-compose.yml exec -T nginx nginx -t
+  args:
+    chdir: /opt/n8n
+
+- name: Restart nginx with HTTPS config
+  ansible.builtin.command:
+    cmd: docker compose -f /opt/n8n/docker-compose.yml restart nginx
+  args:
+    chdir: /opt/n8n

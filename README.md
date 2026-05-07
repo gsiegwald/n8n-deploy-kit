@@ -2,13 +2,13 @@
 
 - AWS infrastructure provisioned with Terraform.
 - Secure defaults: IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
-- Ansible host configuration for Docker, nginx, certbot, n8n and PostgreSQL is in progress.
+- Docker, nginx and certbot fully provisioned via Ansible. n8n deployment in progress.
 
 n8n-deploy-kit is a production-oriented proof of concept for deploying a self-hosted [n8n](https://n8n.io) stack on AWS EC2.
 
-The current version provisions the AWS infrastructure: VPC, public subnet, Internet Gateway, route table, Security Group, Ubuntu 24.04 EC2 instance, Elastic IP, SSH key pair, and Terraform outputs for SSH and Ansible inventory generation.
+The current version provisions the AWS infrastructure and configures the full Docker Compose stack with nginx, certbot and a Let's Encrypt TLS certificate. At this stage, `https://<fqdn>` responds with a voluntary `502 — n8n is not deployed yet` — this is expected. n8n and PostgreSQL deployment is in progress.
 
-The target v1 stack will configure nginx as a host-level reverse proxy, n8n and PostgreSQL in Docker Compose, and a Let's Encrypt TLS certificate using Ansible.
+The target v1 stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services, with nginx handling TLS termination and proxying traffic to n8n via the Docker internal network.
 
 ## Prerequisites
 
@@ -16,12 +16,13 @@ The target v1 stack will configure nginx as a host-level reverse proxy, n8n and 
 - Ansible >= 2.15
 - AWS CLI >= 2 configured (`aws configure`)
 - An SSH key pair dedicated to this project
-- A domain or subdomain pointing to the EC2 Elastic IP will be required later for Let's Encrypt TLS certificates
+
+> **No custom domain required for the POC.** The public FQDN is generated dynamically from the Elastic IP using [sslip.io](https://sslip.io) — for example `51-45-52-249.sslip.io`. This is suitable for development and testing. A real domain would be required for a production deployment or client demo.
 
 **Generate a dedicated SSH key pair:**
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/n8n-deploy-kit_key -N "" -C "n8n-deploy-kit"
-````
+```
 
 **Detect your public IP for SSH access:**
 
@@ -66,6 +67,22 @@ terraform -chdir=terraform output -raw ansible_inventory > ansible/inventory.ini
 
 ---
 
+## Configure the stack
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yml
+```
+
+The playbook runs the following roles in order:
+
+| Role | What it does |
+|---|---|
+| `base` | System updates and package cleanup |
+| `docker` | Installs Docker Engine and Compose plugin, verifies GPG fingerprint |
+| `nginx` | Deploys Docker Compose stack, obtains Let's Encrypt TLS certificate via certbot, configures nginx |
+
+---
+
 ## Destroy
 
 ```bash
@@ -92,9 +109,10 @@ flowchart LR
       subgraph Subnet["Public Subnet 10.0.1.0/24 - dynamically selected AZ"]
         SG["Security Group\nSSH :22 admin only\nHTTP :80 public\nHTTPS :443 public"]
         subgraph EC2["EC2 t3.small - Ubuntu 24.04"]
-          NGINX["nginx\n(host, :80/:443)"]
           subgraph Docker["Docker Compose"]
-            N8N["n8n\n(:5678 localhost)"]
+            NGINX["nginx\n(:80/:443)"]
+            CERTBOT["certbot\n(one-shot)"]
+            N8N["n8n\n(:5678)"]
             PG["PostgreSQL 16\n(internal)"]
           end
           N8N <-->|SQL| PG
@@ -110,13 +128,14 @@ flowchart LR
   Admin["Admin"]
 
   %% Network flows
-  User -->|HTTPS :443| NGINX
-  User -.->|HTTP :80 redirect| NGINX
-  NGINX -->|proxy_pass :5678| N8N
-  Admin -->|SSH :22| EC2
-  EIP --> SG
-  IGW <--> EIP
-  NGINX <-->|ACME challenge| LE
+  User -->|HTTPS :443 via EIP| NGINX
+  User -.->|HTTP :80 redirect via EIP| NGINX
+  NGINX -->|proxy_pass http://n8n:5678| N8N
+  Admin -->|SSH :22 via EIP| EC2
+  IGW --> EC2
+  EIP --> EC2
+  SG -.-> EC2
+  CERTBOT <-->|HTTP-01 ACME challenge :80| LE
 
   %% ---- Subgraph styling ----
   style AWS    fill:#F3F4F6,stroke:#CBD5E1,stroke-width:1px,color:#111827,font-size:15px,font-weight:bold
@@ -129,15 +148,16 @@ flowchart LR
   classDef default  fill:#E8F1FF,stroke:#2563EB,stroke-width:1px,color:#111827;
 ```
 
-The following components describe the intended v1 target architecture. At the current stage, Terraform provisions the AWS infrastructure; Ansible roles for nginx, Docker, n8n and certbot are in progress.
+The following components describe the intended v1 target architecture. At the current stage, Terraform provisions the AWS infrastructure and Ansible configures Docker, nginx and certbot. n8n and PostgreSQL deployment is in progress.
 
 The target architecture includes:
 
 * An Ubuntu 24.04 EC2 instance (`t3.small`) hosting the full stack.
-* **nginx** installed on the host as a reverse proxy, handling TLS termination and proxying traffic to n8n.
-* **n8n** running in Docker Compose, bound to `127.0.0.1:5678` (not exposed publicly - reachable only via nginx).
+* **nginx** running in Docker Compose as a reverse proxy, handling TLS termination and proxying traffic to n8n via the Docker internal network.
+* **certbot** running as a one-shot Docker Compose service, obtaining and renewing Let's Encrypt TLS certificates via the HTTP-01 ACME challenge.
+* **n8n** running in Docker Compose, accessible only from nginx via the Docker internal network (`http://n8n:5678`).
 * **PostgreSQL 16** running in Docker Compose as n8n's database backend (no public port exposed).
-* A **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal.
+* A **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal managed by a systemd timer.
 * An **Elastic IP** ensuring the public IP address remains stable across instance reboots.
 * **IMDSv2 enforced** with hop limit = 1, preventing Docker containers from accessing the instance metadata service.
 * **Encrypted EBS volume** (gp3) for the root disk.
@@ -214,12 +234,19 @@ Currently implemented at the Terraform layer:
 * **IMDSv2 enforced**: instance metadata access requires a session token (IMDSv1 disabled). Hop limit set to 1 - Docker containers cannot reach the metadata service.
 * **Encrypted EBS root volume**: disk content is encrypted at rest using an AWS-managed key.
 
-Planned at the Ansible / application layer:
+Currently implemented at the Ansible / application layer:
 
-* **nginx as the only public entry point** for n8n.
-* **n8n not directly exposed**: n8n binds on `127.0.0.1:5678` only - accessible exclusively through nginx.
-* **PostgreSQL not exposed**: no public port, reachable only by n8n within the Docker network.
-* **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal.
+* **nginx as the only public entry point**: ports 80 and 443 are the only publicly exposed ports.
+* **n8n not directly exposed**: n8n is reachable only from nginx via the Docker internal network.
+* **PostgreSQL not exposed**: no public port, reachable only by n8n within the Docker Compose network.
+* **Let's Encrypt TLS certificate** obtained via certbot with HTTP-01 challenge, renewed automatically via a systemd timer.
+* **Docker GPG key fingerprint verified** during installation to prevent supply chain attacks.
+* **nginx container hardened**: `cap_drop: ALL`, `read_only: true`, `no-new-privileges`.
+
+Planned:
+
+* **n8n deployment** - Docker Compose service configuration and environment variables.
+* **CSP and X-Frame-Options headers** - deferred until n8n UI compatibility is validated.
 
 ---
 
@@ -227,10 +254,24 @@ Planned at the Ansible / application layer:
 
 ```text
 n8n-deploy-kit/
-├── ansible/                        # Configuration management (Ansible, in progress)
-│   └── inventory.ini               # Generated by Terraform output (gitignored)
-├── docker/                         # Docker Compose stack (planned / in progress)
-├── docs/                           # Architecture documentation (planned / in progress)
+├── ansible.cfg                 # Ansible configuration (SSH key, inventory path)
+├── ansible/
+│   ├── inventory.ini               # Generated by Terraform output (gitignored)
+│   ├── playbook.yml                # Main playbook — orchestrates all roles
+│   └── roles/
+│       ├── base/
+│       │   └── tasks/main.yml      # System update and cleanup
+│       ├── docker/
+│       │   └── tasks/main.yml      # Docker Engine + Compose plugin installation
+│       └── nginx/
+│           ├── tasks/main.yml      # nginx + certbot deployment and TLS configuration
+│           └── templates/
+│               ├── nginx-http-only.conf.j2          # HTTP config for ACME challenge
+│               ├── nginx-https-placeholder.conf.j2  # HTTPS config before n8n deployment
+│               └── nginx.conf.j2                    # Final HTTPS config with n8n proxy (phase 8)
+├── docker/
+│   └── docker-compose.yml          # Full stack: nginx, certbot, n8n, PostgreSQL
+├── docs/                           # Architecture documentation (planned)
 ├── terraform/
 │   ├── compute.tf                  # EC2, EIP, key pair
 │   ├── network.tf                  # VPC, subnet, IGW, route table, security group
@@ -248,18 +289,16 @@ Note: the following files are local-only and intentionally ignored by Git:
 * `terraform/terraform.tfstate*` and `terraform/.terraform/` - Terraform state and provider cache.
 * `terraform/terraform.tfvars` - sensitive variable values (admin IP, SSH public key).
 * `ansible/inventory.ini` - generated from Terraform outputs, contains the EC2 IP address.
-* `.ssh/` - SSH key pair used for deployment.
+* `.ssh/n8n-deploy-kit_key` and `.ssh/n8n-deploy-kit_key.pub` - SSH key pair used for deployment.
 
 ---
 
 ## Future improvements
 
-* **Ansible roles** - Docker, nginx + certbot, n8n deployment (in progress).
+* **n8n deployment** - Docker Compose environment variables, encryption key, PostgreSQL connection (in progress).
 * **Queue mode** - Redis + n8n workers for high-volume, parallel workflow execution.
 * **RDS PostgreSQL** - Replace the containerized PostgreSQL with a managed AWS RDS instance and automated S3 backups.
 * **Monitoring** - Prometheus + Grafana for n8n metrics and system observability.
 * **HIPAA hardening** - Encryption at rest, audit logging, network isolation checklist.
 * **Multi-tenant** - Per-client n8n instances with Terraform modules.
 * **Remote Terraform backend** - S3 + DynamoDB state locking for team use.
-
-```

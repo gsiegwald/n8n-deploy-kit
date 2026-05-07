@@ -3,6 +3,10 @@
   hosts: n8n_hosts
   become: true
  
+  vars:
+    certbot_email: "your@email.com"
+
+
   pre_tasks:
     - name: Build FQDN from public IP (sslip.io)
       set_fact:
