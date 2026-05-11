@@ -2,13 +2,13 @@
 
 - AWS infrastructure provisioned with Terraform.
 - Secure defaults: IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
-- Docker, nginx and certbot fully provisioned via Ansible. n8n deployment in progress.
+- Full stack deployed via Ansible: Docker, nginx, certbot, n8n and PostgreSQL.
 
-n8n-deploy-kit is a production-oriented proof of concept for deploying a self-hosted [n8n](https://n8n.io) stack on AWS EC2.
+n8n-deploy-kit is a lightweight tool for spinning up a self-hosted [n8n](https://n8n.io) stack on AWS EC2 quickly, with secure-by-default infrastructure settings.
 
-The current version provisions the AWS infrastructure and configures the full Docker Compose stack with nginx, certbot and a Let's Encrypt TLS certificate. At this stage, `https://<fqdn>` responds with a voluntary `502 — n8n is not deployed yet` — this is expected. n8n and PostgreSQL deployment is in progress.
+The current version provisions the AWS infrastructure and deploys the full Docker Compose stack: nginx as a reverse proxy with an initial Let's Encrypt TLS certificate obtained at provisioning time, n8n and PostgreSQL. Once provisioned, `https://<fqdn>` serves the n8n interface.
 
-The target v1 stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services, with nginx handling TLS termination and proxying traffic to n8n via the Docker internal network.
+The stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services, with nginx handling TLS termination and proxying traffic to n8n via the Docker internal network.
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ The target v1 stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose se
 - AWS CLI >= 2 configured (`aws configure`)
 - An SSH key pair dedicated to this project
 
-> **No custom domain required for the POC.** The public FQDN is generated dynamically from the Elastic IP using [sslip.io](https://sslip.io) — for example `51-45-52-249.sslip.io`. This is suitable for development and testing. A real domain would be required for a production deployment or client demo.
+> **No custom domain required.** The public FQDN is generated dynamically from the Elastic IP using [sslip.io](https://sslip.io) — for example `51-45-52-249.sslip.io`. This is suitable for development and testing. A real domain is recommended for production or polished client-facing demos.
 
 **Generate a dedicated SSH key pair:**
 ```bash
@@ -42,6 +42,13 @@ Required values in `terraform.tfvars`:
 | ---------------- | ------------------------------------------------------- |
 | `admin_ip`       | Your public IP with /32 suffix (e.g. `203.0.113.10/32`) |
 | `ssh_public_key` | Content of `~/.ssh/n8n-deploy-kit_key.pub`              |
+
+**Set your email address for Let's Encrypt notifications** in `ansible/playbook.yml`:
+
+```yaml
+vars:
+  certbot_email: "your@email.com"
+```
 
 ---
 
@@ -79,7 +86,22 @@ The playbook runs the following roles in order:
 |---|---|
 | `base` | System updates and package cleanup |
 | `docker` | Installs Docker Engine and Compose plugin, verifies GPG fingerprint |
-| `nginx` | Deploys Docker Compose stack, obtains Let's Encrypt TLS certificate via certbot, configures nginx |
+| `nginx` | Deploys nginx and certbot bootstrap, obtains the initial Let's Encrypt TLS certificate, configures HTTPS placeholder |
+| `n8n` | Generates secrets, deploys n8n and PostgreSQL, switches nginx to the final reverse proxy config |
+
+> **Note**: the first run may take 3–5 minutes on a t3.small while n8n applies its database migrations. If the playbook times out on `Wait for n8n to be ready`, simply re-run it — the migrations will already be complete.
+
+**Validate the deployment:**
+
+```bash
+# Check HTTPS response (run locally)
+curl -Ik https://<fqdn>
+
+# Check container status (run on the EC2 instance)
+docker compose -f /opt/n8n/docker-compose.yml ps
+```
+
+Expected result: HTTPS returns the n8n initial setup page, usually `200 OK` or a redirect to the setup flow. The `nginx`, `n8n` and `postgres` containers should be running. The `certbot` container is used as a one-shot service and is not expected to stay running. Open `https://<fqdn>` in a browser to complete the n8n initial setup.
 
 ---
 
@@ -148,16 +170,14 @@ flowchart LR
   classDef default  fill:#E8F1FF,stroke:#2563EB,stroke-width:1px,color:#111827;
 ```
 
-The following components describe the intended v1 target architecture. At the current stage, Terraform provisions the AWS infrastructure and Ansible configures Docker, nginx and certbot. n8n and PostgreSQL deployment is in progress.
-
-The target architecture includes:
+The architecture includes:
 
 * An Ubuntu 24.04 EC2 instance (`t3.small`) hosting the full stack.
 * **nginx** running in Docker Compose as a reverse proxy, handling TLS termination and proxying traffic to n8n via the Docker internal network.
-* **certbot** running as a one-shot Docker Compose service, obtaining and renewing Let's Encrypt TLS certificates via the HTTP-01 ACME challenge.
+* **certbot** running as a one-shot Docker Compose service, obtaining the initial Let's Encrypt TLS certificate via the HTTP-01 ACME challenge. Certificate renewal is not yet automated.
 * **n8n** running in Docker Compose, accessible only from nginx via the Docker internal network (`http://n8n:5678`).
 * **PostgreSQL 16** running in Docker Compose as n8n's database backend (no public port exposed).
-* A **Let's Encrypt TLS certificate** obtained via certbot, with automatic renewal managed by a systemd timer.
+* A **Let's Encrypt TLS certificate** obtained via certbot at provisioning time. Automatic renewal is not yet implemented.
 * An **Elastic IP** ensuring the public IP address remains stable across instance reboots.
 * **IMDSv2 enforced** with hop limit = 1, preventing Docker containers from accessing the instance metadata service.
 * **Encrypted EBS volume** (gp3) for the root disk.
@@ -239,14 +259,16 @@ Currently implemented at the Ansible / application layer:
 * **nginx as the only public entry point**: ports 80 and 443 are the only publicly exposed ports.
 * **n8n not directly exposed**: n8n is reachable only from nginx via the Docker internal network.
 * **PostgreSQL not exposed**: no public port, reachable only by n8n within the Docker Compose network.
-* **Let's Encrypt TLS certificate** obtained via certbot with HTTP-01 challenge, renewed automatically via a systemd timer.
-* **Docker GPG key fingerprint verified** during installation to prevent supply chain attacks.
+* **Let's Encrypt TLS certificate** obtained via certbot with HTTP-01 challenge at provisioning time.
+* **Docker GPG key fingerprint verified** during installation to reduce the risk of repository key substitution.
 * **nginx container hardened**: `cap_drop: ALL`, `read_only: true`, `no-new-privileges`.
+* **n8n secrets generated automatically**: PostgreSQL password and encryption key are randomly generated by Ansible on first deploy and never stored in the repository.
+* **`.env` file permissions**: `0600` — readable only by the `ubuntu` user on the EC2 instance.
 
 Planned:
 
-* **n8n deployment** - Docker Compose service configuration and environment variables.
-* **CSP and X-Frame-Options headers** - deferred until n8n UI compatibility is validated.
+* **Automatic certificate renewal** — planned via a systemd timer running `certbot renew` and reloading nginx.
+* **CSP and X-Frame-Options headers** — deferred until n8n UI compatibility is validated.
 
 ---
 
@@ -263,14 +285,19 @@ n8n-deploy-kit/
 │       │   └── tasks/main.yml      # System update and cleanup
 │       ├── docker/
 │       │   └── tasks/main.yml      # Docker Engine + Compose plugin installation
-│       └── nginx/
-│           ├── tasks/main.yml      # nginx + certbot deployment and TLS configuration
+│       ├── nginx/
+│       │   ├── tasks/main.yml      # nginx + certbot deployment and TLS configuration
+│       │   └── templates/
+│       │       ├── nginx-http-only.conf.j2          # HTTP config for ACME challenge
+│       │       └── nginx-https-placeholder.conf.j2  # HTTPS config before n8n deployment
+│       └── n8n/
+│           ├── tasks/main.yml      # n8n + PostgreSQL deployment, final nginx config
 │           └── templates/
-│               ├── nginx-http-only.conf.j2          # HTTP config for ACME challenge
-│               ├── nginx-https-placeholder.conf.j2  # HTTPS config before n8n deployment
-│               └── nginx.conf.j2                    # Final HTTPS config with n8n proxy (phase 8)
+│               ├── .env.j2         # n8n and PostgreSQL secrets template
+│               └── nginx.conf.j2   # Final HTTPS config with n8n proxy
 ├── docker/
-│   └── docker-compose.yml          # Full stack: nginx, certbot, n8n, PostgreSQL
+│   ├── docker-compose.yml          # Full stack: nginx, certbot, n8n, PostgreSQL
+│   └── .env.example                # Environment variables reference (no secrets)
 ├── docs/                           # Architecture documentation (planned)
 ├── terraform/
 │   ├── compute.tf                  # EC2, EIP, key pair
@@ -289,13 +316,14 @@ Note: the following files are local-only and intentionally ignored by Git:
 * `terraform/terraform.tfstate*` and `terraform/.terraform/` - Terraform state and provider cache.
 * `terraform/terraform.tfvars` - sensitive variable values (admin IP, SSH public key).
 * `ansible/inventory.ini` - generated from Terraform outputs, contains the EC2 IP address.
-* `.ssh/n8n-deploy-kit_key` and `.ssh/n8n-deploy-kit_key.pub` - SSH key pair used for deployment.
+
+The SSH private key is expected to stay outside the repository, for example in `~/.ssh/n8n-deploy-kit_key`.
 
 ---
 
-## Future improvements
+## Possible improvements
 
-* **n8n deployment** - Docker Compose environment variables, encryption key, PostgreSQL connection (in progress).
+* **Certificate renewal** - Automate Let's Encrypt certificate renewal via a systemd timer running `certbot renew` and reloading nginx.
 * **Queue mode** - Redis + n8n workers for high-volume, parallel workflow execution.
 * **RDS PostgreSQL** - Replace the containerized PostgreSQL with a managed AWS RDS instance and automated S3 backups.
 * **Monitoring** - Prometheus + Grafana for n8n metrics and system observability.

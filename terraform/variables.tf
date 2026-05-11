@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Project name — used for resource naming and tags"
   type        = string
-  default     = "n8n-deploy-aws"
+  default     = "n8n-deploy-kit"
 }
 
 variable "admin_ip" {

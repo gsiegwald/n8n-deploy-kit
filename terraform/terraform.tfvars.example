@@ -2,7 +2,7 @@
 # terraform.tfvars is excluded from version control (.gitignore).
 
 aws_region     = "eu-west-3"
-project_name   = "n8n-deploy-aws"
+project_name   = "n8n-deploy-kit"
 instance_type  = "t3.small"
 
 # Your public IP with /32 suffix — SSH will be restricted to this address.
