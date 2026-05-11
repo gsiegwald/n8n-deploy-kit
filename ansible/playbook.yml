@@ -20,4 +20,4 @@
     - base
     - docker
     - nginx
-      #- n8n
+    - n8n

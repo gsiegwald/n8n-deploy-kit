@@ -53,6 +53,7 @@
     cmd: >
       docker compose -f /opt/n8n/docker-compose.yml
       run --rm certbot certonly --webroot
+      --staging
       -w /var/www/certbot
       -d {{ n8n_fqdn }}
       --email {{ certbot_email }}
