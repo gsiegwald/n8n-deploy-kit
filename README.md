@@ -1,14 +1,8 @@
 # n8n-deploy-kit
 
-- AWS infrastructure provisioned with Terraform.
-- Secure defaults: IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
-- Full stack deployed via Ansible: Docker, nginx, certbot, n8n and PostgreSQL.
+n8n-deploy-kit is a lightweight tool for spinning up a self-hosted [n8n](https://n8n.io) stack on AWS EC2 quickly, with secure-by-default infrastructure settings. Infrastructure is provisioned with Terraform and the full stack is configured with Ansible — IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
 
-n8n-deploy-kit is a lightweight tool for spinning up a self-hosted [n8n](https://n8n.io) stack on AWS EC2 quickly, with secure-by-default infrastructure settings.
-
-The current version provisions the AWS infrastructure and deploys the full Docker Compose stack: nginx as a reverse proxy with an initial Let's Encrypt TLS certificate obtained at provisioning time, n8n and PostgreSQL. Once provisioned, `https://<fqdn>` serves the n8n interface.
-
-The stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services, with nginx handling TLS termination and proxying traffic to n8n via the Docker internal network.
+Once provisioned, the stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services. nginx handles TLS termination with an initial Let's Encrypt certificate and proxies traffic to n8n via the Docker internal network. The n8n interface is accessible via HTTPS at a URL automatically derived from the EC2 public IP using sslip.io — for example `https://51-45-52-249.sslip.io`. No DNS configuration is required.
 
 ## Prerequisites
 
