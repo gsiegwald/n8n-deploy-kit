@@ -45,7 +45,7 @@ plan.out
 # ──────────────────────────────────────────────
  
 # Generated inventory (contains IP + SSH key path)
-ansible/inventory.ini
+*inventory.ini
  
 # Retry files generated on failed plays
 *.retry
