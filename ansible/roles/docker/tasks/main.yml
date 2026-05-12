@@ -37,7 +37,7 @@
 
 - name: Fail if Docker GPG fingerprint does not match
   ansible.builtin.fail:
-    msg: "Docker GPG key fingerprint mismatchi, possible supply chain attack"
+    msg: "Docker GPG key fingerprint mismatch, possible supply chain attack"
   when: "'9DC858229FC7DD38854AE2D88D81803C0EBFCD88' not in gpg_output.stdout"
 
 - name: Add Docker APT repository

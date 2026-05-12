@@ -312,8 +312,9 @@ The SSH private key is expected to stay outside the repository, for example in `
 
 ---
 
-## Possible improvements
+## Future improvements
 
+* **n8n owner pre-configuration** - Pre-create the admin account via environment variables so the instance is locked down as soon as it comes online.
 * **Certificate renewal** - Automate Let's Encrypt certificate renewal via a systemd timer running `certbot renew` and reloading nginx.
 * **Queue mode** - Redis + n8n workers for high-volume, parallel workflow execution.
 * **RDS PostgreSQL** - Replace the containerized PostgreSQL with a managed AWS RDS instance and automated S3 backups.
