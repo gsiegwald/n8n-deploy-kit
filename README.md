@@ -1,8 +1,8 @@
 # n8n-deploy-kit
 
-n8n-deploy-kit is a lightweight tool for spinning up a self-hosted [n8n](https://n8n.io) stack on AWS EC2 quickly, with secure-by-default infrastructure settings. Infrastructure is provisioned with Terraform and the full stack is configured with Ansible — IMDSv2 enforced, SSH restricted to an admin IP, encrypted EBS root volume.
+n8n-deploy-kit is a lightweight tool for setting up a self-hosted [n8n](https://n8n.io) stack on AWS EC2 quickly. The infrastructure is provisioned with Terraform and then configured with Ansible, with secure infrastructure settings (IMDSv2 enforced, SSH restricted to admin IP, encrypted EBS root volume.)
 
-Once provisioned, the stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services. nginx handles TLS termination with an initial Let's Encrypt certificate and proxies traffic to n8n via the Docker internal network. The n8n interface is accessible via HTTPS at a URL automatically derived from the EC2 public IP using sslip.io — for example `https://51-45-52-249.sslip.io`. No DNS configuration is required.
+Once provisioned, the stack runs nginx, certbot, n8n and PostgreSQL as Docker Compose services. nginx handles TLS termination with an initial Let's Encrypt certificate and proxies traffic to n8n via the Docker internal network. The n8n interface is accessible via HTTPS at a URL automatically derived from the EC2 public IP using sslip.io, for example `https://51-45-52-249.sslip.io`. No DNS configuration is required.
 
 ## Prerequisites
 
@@ -11,21 +11,17 @@ Once provisioned, the stack runs nginx, certbot, n8n and PostgreSQL as Docker Co
 - AWS CLI >= 2 configured (`aws configure`)
 - An SSH key pair dedicated to this project
 
-> **No custom domain required.** The public FQDN is generated dynamically from the Elastic IP using [sslip.io](https://sslip.io) — for example `51-45-52-249.sslip.io`. This is suitable for development and testing. A real domain is recommended for production or polished client-facing demos.
-
 **Generate a dedicated SSH key pair:**
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/n8n-deploy-kit_key -N "" -C "n8n-deploy-kit"
 ```
 
 **Detect your public IP for SSH access:**
-
 ```bash
 curl -s https://ifconfig.me
 ```
 
-**Configure your variables - copy the example and fill in the values:**
-
+**Configure your variables, copy the example and fill in the values:**
 ```bash
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
@@ -35,6 +31,8 @@ Required values in `terraform.tfvars`:
 | Variable         | Description                                             |
 | ---------------- | ------------------------------------------------------- |
 | `admin_ip`       | Your public IP with /32 suffix (e.g. `203.0.113.10/32`) |
+| `aws_region`     | AWS region                                              |
+| `instance_type ` | AWS instance type for EC2 (t3.small by default)         |
 | `ssh_public_key` | Content of `~/.ssh/n8n-deploy-kit_key.pub`              |
 
 **Set your email address for Let's Encrypt notifications** in `ansible/playbook.yml`:
@@ -46,14 +44,15 @@ vars:
 
 ---
 
-## Provision the AWS infrastructure
+## Provision the AWS infrastructure (Terraform)
 
+Terraform provisioning :
 ```bash
 terraform -chdir=terraform init
 terraform -chdir=terraform apply -auto-approve
 ```
 
-After apply, retrieve the outputs:
+If needed you can retrieve the EC2 public IP and the ssh command to join the instance :
 
 ```bash
 # EC2 public IP
@@ -61,14 +60,17 @@ terraform -chdir=terraform output ec2_public_ip
 
 # Ready-to-use SSH command
 terraform -chdir=terraform output ssh_command
+```
 
+Generate the ansible inventory :
+```bash
 # Ansible inventory (generated from Terraform outputs)
 terraform -chdir=terraform output -raw ansible_inventory > ansible/inventory.ini
 ```
 
 ---
 
-## Configure the stack
+## Tools deployment and configuration (Ansible)
 
 ```bash
 ansible-playbook -i ansible/inventory.ini ansible/playbook.yml
@@ -83,23 +85,25 @@ The playbook runs the following roles in order:
 | `nginx` | Deploys nginx and certbot bootstrap, obtains the initial Let's Encrypt TLS certificate, configures HTTPS placeholder |
 | `n8n` | Generates secrets, deploys n8n and PostgreSQL, switches nginx to the final reverse proxy config |
 
-> **Note**: the first run may take 3–5 minutes on a t3.small while n8n applies its database migrations. If the playbook times out on `Wait for n8n to be ready`, simply re-run it — the migrations will already be complete.
+> **Note**: the first run may take 3–5 minutes on a t3.small while n8n applies its database migration.
 
 **Validate the deployment:**
 
 ```bash
 # Check HTTPS response (run locally)
-curl -Ik https://<fqdn>
+curl -Ik https://<EC2 public IP with hyphens>.sslip.io
 
 # Check container status (run on the EC2 instance)
 docker compose -f /opt/n8n/docker-compose.yml ps
 ```
 
-Expected result: HTTPS returns the n8n initial setup page, usually `200 OK` or a redirect to the setup flow. The `nginx`, `n8n` and `postgres` containers should be running. The `certbot` container is used as a one-shot service and is not expected to stay running. Open `https://<fqdn>` in a browser to complete the n8n initial setup.
+Expected result: curl returns the `200 OK`. The `nginx`, `n8n` and `postgres` containers should be running. The `certbot` container is used as a one-shot service and is not expected to stay running. 
+
+Open `https://<EC2 public IP with hyphens>.sslip.io` in a browser to complete the n8n initial setup.
 
 ---
 
-## Destroy
+## Destroy Infrastructure
 
 ```bash
 terraform -chdir=terraform destroy -auto-approve
@@ -120,7 +124,7 @@ High-level view of the target architecture and the main network flows.
 ```mermaid
 flowchart LR
   %% Infrastructure
-  subgraph AWS["AWS - eu-west-3"]
+  subgraph AWS["AWS"]
     subgraph VPC["VPC 10.0.0.0/16"]
       subgraph Subnet["Public Subnet 10.0.1.0/24 - dynamically selected AZ"]
         SG["Security Group\nSSH :22 admin only\nHTTP :80 public\nHTTPS :443 public"]
@@ -185,7 +189,7 @@ flowchart TB
   subgraph L[" Local "]
     U["Admin workstation"]
     TF["Terraform\nterraform/"]
-    TFVARS["terraform.tfvars\n(local deployment values, gitignored)"]
+    TFVARS["terraform.tfvars"]
   end
 
   subgraph NET["AWS Resources : Network"]
@@ -257,12 +261,12 @@ Currently implemented at the Ansible / application layer:
 * **Docker GPG key fingerprint verified** during installation to reduce the risk of repository key substitution.
 * **nginx container hardened**: `cap_drop: ALL`, `read_only: true`, `no-new-privileges`.
 * **n8n secrets generated automatically**: PostgreSQL password and encryption key are randomly generated by Ansible on first deploy and never stored in the repository.
-* **`.env` file permissions**: `0600` — readable only by the `ubuntu` user on the EC2 instance.
+* **`.env` file permissions**: `0600` , readable only by the `ubuntu` user on the EC2 instance.
 
 Planned:
 
-* **Automatic certificate renewal** — planned via a systemd timer running `certbot renew` and reloading nginx.
-* **CSP and X-Frame-Options headers** — deferred until n8n UI compatibility is validated.
+* **Automatic certificate renewal** , planned via a systemd timer running `certbot renew` and reloading nginx.
+* **CSP and X-Frame-Options headers** , deferred until n8n UI compatibility is validated.
 
 ---
 
@@ -273,7 +277,7 @@ n8n-deploy-kit/
 ├── ansible.cfg                 # Ansible configuration (SSH key, inventory path)
 ├── ansible/
 │   ├── inventory.ini               # Generated by Terraform output (gitignored)
-│   ├── playbook.yml                # Main playbook — orchestrates all roles
+│   ├── playbook.yml                # Main playbook , orchestrates all roles
 │   └── roles/
 │       ├── base/
 │       │   └── tasks/main.yml      # System update and cleanup
